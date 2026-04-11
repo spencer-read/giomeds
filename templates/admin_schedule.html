@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GioMeds — Edit Schedule</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+  />
+  <style>
+    .section-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 6px rgba(0,0,0,.07);
+    }
+    .time-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      align-items: center;
+    }
+    .time-row input { flex: 1; margin-bottom: 0; }
+    .remove-btn {
+      flex-shrink: 0;
+      width: auto !important;
+      padding: 0.4rem 0.9rem !important;
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .error { color: #c0392b; background: #f8d7da; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <main class="container" style="max-width: 560px;">
+
+    <!-- Nav -->
+    <nav style="margin-bottom: 1.5rem; padding: 0.75rem 0; border-bottom: 1px solid #e0e0e0;">
+      <ul><li><strong>💊 GioMeds</strong></li></ul>
+      <ul>
+        <li><a href="/admin" style="font-size: 0.9rem;">← Dashboard</a></li>
+        <li><a href="/admin/logout" style="font-size: 0.9rem; color: #666;">Logout</a></li>
+      </ul>
+    </nav>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages() %}
+      {% for msg in messages %}
+        <p class="error">{{ msg }}</p>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="section-card">
+      <h2 style="margin-bottom: 1.25rem;">Edit Medication Schedule</h2>
+
+      <form method="post" action="/admin/schedule">
+
+        <label for="medication_name">Medication Name</label>
+        <input
+          type="text"
+          id="medication_name"
+          name="medication_name"
+          value="{{ schedule.medication_name }}"
+          placeholder="e.g. Phenobarbital"
+          required
+        />
+
+        <label style="margin-bottom: 0.4rem; display:block;">Dose Times</label>
+        <div id="dose-times-container">
+          {% for time in schedule.dose_times %}
+          <div class="time-row">
+            <input type="time" name="dose_times" value="{{ time }}" required />
+            <button type="button" class="secondary outline remove-btn" onclick="removeRow(this)">✕</button>
+          </div>
+          {% endfor %}
+        </div>
+        <button
+          type="button"
+          class="secondary"
+          onclick="addRow()"
+          style="margin-bottom: 1.25rem; font-size: 0.9rem;"
+        >+ Add time</button>
+
+        <label for="timezone">Timezone</label>
+        <input
+          type="text"
+          id="timezone"
+          name="timezone"
+          value="{{ schedule.timezone }}"
+          placeholder="e.g. Europe/London"
+          required
+        />
+        <small style="color:#666; display:block; margin-top:-0.75rem; margin-bottom:1rem;">
+          IANA timezone string — e.g. <code>Europe/London</code>, <code>America/New_York</code>, <code>Australia/Sydney</code>
+        </small>
+
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+          <button type="submit">Save Schedule</button>
+          <a href="/admin" role="button" class="secondary outline">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+
+  </main>
+
+  <script>
+    function addRow() {
+      const container = document.getElementById('dose-times-container');
+      const div = document.createElement('div');
+      div.className = 'time-row';
+      div.innerHTML =
+        '<input type="time" name="dose_times" required />' +
+        '<button type="button" class="secondary outline remove-btn" onclick="removeRow(this)">✕</button>';
+      container.appendChild(div);
+      div.querySelector('input').focus();
+    }
+
+    function removeRow(btn) {
+      const container = document.getElementById('dose-times-container');
+      if (container.querySelectorAll('.time-row').length > 1) {
+        btn.closest('.time-row').remove();
+      }
+    }
+  </script>
+</body>
+</html>

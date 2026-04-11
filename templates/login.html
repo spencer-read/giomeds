@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GioMeds — Login</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+  />
+  <style>
+    body { background: #f4f6f9; }
+    main { padding-top: 4rem; }
+    .card { background: #fff; border-radius: 12px; padding: 2rem; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    h1 { margin-bottom: 0.25rem; }
+    .error { color: #c0392b; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <main class="container" style="max-width: 420px;">
+    <div class="card">
+      <hgroup>
+        <h1>💊 GioMeds</h1>
+        <p>Admin — please sign in</p>
+      </hgroup>
+
+      {% with messages = get_flashed_messages() %}
+        {% for msg in messages %}
+          <p class="error">{{ msg }}</p>
+        {% endfor %}
+      {% endwith %}
+
+      <form method="post" action="/admin/login">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="Enter admin password"
+          required
+          autofocus
+        />
+        <button type="submit">Log In</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>

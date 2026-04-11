@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GioMeds — Dashboard</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+  />
+  <style>
+    .badge {
+      display: inline-block;
+      padding: 0.2em 0.7em;
+      border-radius: 999px;
+      font-size: 0.85em;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .badge-pending  { background: #fff3cd; color: #856404; }
+    .badge-confirmed{ background: #d1e7dd; color: #0a3622; }
+    .badge-missed   { background: #f8d7da; color: #58151c; }
+    .badge-skipped  { background: #e2e3e5; color: #41464b; }
+    table { font-size: 0.875rem; }
+    .section-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 6px rgba(0,0,0,.07);
+    }
+    nav ul li strong { font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <main class="container">
+
+    <!-- Nav -->
+    <nav style="margin-bottom: 1.5rem; padding: 0.75rem 0; border-bottom: 1px solid #e0e0e0;">
+      <ul><li><strong>💊 GioMeds</strong></li></ul>
+      <ul>
+        <li><a href="/admin/schedule" role="button" class="outline secondary" style="padding: 0.4rem 1rem; font-size: 0.9rem;">Edit Schedule</a></li>
+        <li><a href="/admin/logout" style="font-size: 0.9rem; color: #666;">Logout</a></li>
+      </ul>
+    </nav>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages() %}
+      {% for msg in messages %}
+        <p style="color: #0a3622; background: #d1e7dd; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem;">
+          ✅ {{ msg }}
+        </p>
+      {% endfor %}
+    {% endwith %}
+
+    <!-- Current Schedule -->
+    <div class="section-card">
+      <h3 style="margin-bottom: 0.75rem;">📅 Current Schedule</h3>
+      <p style="margin: 0.25rem 0;"><strong>Medication:</strong> {{ schedule.medication_name }}</p>
+      <p style="margin: 0.25rem 0;">
+        <strong>Dose Times:</strong>
+        {% for t in schedule.dose_times %}
+          <span class="badge" style="background:#e8f0fe; color:#1a56db; margin-right:4px;">{{ t }}</span>
+        {% endfor %}
+      </p>
+      <p style="margin: 0.25rem 0; color: #666; font-size: 0.875rem;">Timezone: {{ timezone }}</p>
+    </div>
+
+    <!-- Current Dose Window -->
+    <div class="section-card">
+      <h3 style="margin-bottom: 0.75rem;">💉 Current Dose Window</h3>
+      {% if current_dose.status %}
+        <p style="margin: 0.3rem 0;">
+          <strong>Scheduled:</strong>
+          {{ current_dose.scheduled_time.strftime('%Y-%m-%d %H:%M') if current_dose.scheduled_time else 'N/A' }}
+        </p>
+        <p style="margin: 0.3rem 0;">
+          <strong>Status:</strong>
+          <span class="badge badge-{{ current_dose.status }}">{{ current_dose.status }}</span>
+        </p>
+        {% if current_dose.confirmed_by %}
+          <p style="margin: 0.3rem 0;">
+            <strong>{{ 'Confirmed' if current_dose.status == 'confirmed' else 'Actioned' }} by:</strong>
+            {{ current_dose.confirmed_by }}
+            {% if current_dose.administered_at %}
+              at {{ current_dose.administered_at.strftime('%H:%M') }}
+            {% endif %}
+          </p>
+        {% endif %}
+        {% if current_dose.note %}
+          <p style="margin: 0.3rem 0;"><strong>Note:</strong> {{ current_dose.note }}</p>
+        {% endif %}
+        <p style="margin: 0.3rem 0; color: #666; font-size: 0.875rem;">
+          Reminders sent: {{ current_dose.reminder_count }}
+        </p>
+      {% else %}
+        <p style="color: #666;">No active dose window. Waiting for the next scheduled time.</p>
+      {% endif %}
+    </div>
+
+    <!-- Recent Dose Log -->
+    <div class="section-card">
+      <h3 style="margin-bottom: 0.75rem;">📋 Recent Dose Log <small style="font-size:0.75rem; color:#888;">(last 10)</small></h3>
+      {% if recent_logs %}
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Scheduled</th>
+                <th>Status</th>
+                <th>By</th>
+                <th>Administered</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in recent_logs %}
+              <tr>
+                <td style="white-space:nowrap;">{{ (log.get('Scheduled Time') or '')[:16] }}</td>
+                <td>
+                  {% set s = log.get('Status', '') %}
+                  <span class="badge badge-{{ s }}">{{ s }}</span>
+                </td>
+                <td>{{ log.get('Confirmed By', '') }}</td>
+                <td style="white-space:nowrap;">{{ (log.get('Administered Time') or '')[:16] }}</td>
+                <td>{{ log.get('Note', '') }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p style="color: #666;">No dose logs yet.</p>
+      {% endif %}
+    </div>
+
+    <p style="text-align:center; color:#aaa; font-size:0.8rem;">
+      GioMeds &mdash; refreshed {{ now.strftime('%H:%M') }} ({{ timezone }})
+    </p>
+
+  </main>
+</body>
+</html>

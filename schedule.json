@@ -1,0 +1,5 @@
+{
+  "medication_name": "Phenobarbital",
+  "dose_times": ["08:00", "20:00"],
+  "timezone": "Europe/London"
+}
