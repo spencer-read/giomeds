@@ -99,6 +99,44 @@
       {% endif %}
     </div>
 
+    <!-- Vacation Mode -->
+    <div class="section-card">
+      <h3 style="margin-bottom: 0.75rem;">✈️ Vacation Mode</h3>
+      {% if vacation_is_active %}
+        <p style="margin: 0.3rem 0;">
+          <span class="badge" style="background:#d1e7dd; color:#0a3622;">Active</span>
+          &nbsp;Sitter: <strong>{{ vacation.sitter_name }}</strong>
+        </p>
+        <p style="margin: 0.3rem 0; font-size: 0.875rem; color: #444;">
+          Window: {{ (vacation.start or '')[:16] }} → {{ (vacation.end or '')[:16] }}
+        </p>
+        <p style="margin: 0.3rem 0; font-size: 0.875rem; color: #666;">
+          Owner notifications:
+          {% if vacation.suspend_owner_notifications %}
+            <strong style="color:#856404;">Paused</strong>
+          {% else %}
+            <strong style="color:#0a3622;">Active</strong>
+          {% endif %}
+        </p>
+      {% elif vacation.active %}
+        <p style="margin: 0.3rem 0;">
+          <span class="badge badge-skipped">Scheduled (window not yet started)</span>
+        </p>
+        <p style="margin: 0.3rem 0; font-size: 0.875rem; color: #444;">
+          Window: {{ (vacation.start or '')[:16] }} → {{ (vacation.end or '')[:16] }}
+        </p>
+      {% else %}
+        <p style="color: #666; margin: 0.3rem 0;">
+          <span class="badge badge-skipped">Inactive</span>
+        </p>
+      {% endif %}
+      <p style="margin-top: 0.75rem; margin-bottom: 0;">
+        <a href="/admin/vacation" role="button" class="secondary outline" style="padding: 0.4rem 1rem; font-size: 0.875rem;">
+          Manage Vacation Mode
+        </a>
+      </p>
+    </div>
+
     <!-- Recent Dose Log -->
     <div class="section-card">
       <h3 style="margin-bottom: 0.75rem;">📋 Recent Dose Log <small style="font-size:0.75rem; color:#888;">(last 10)</small></h3>

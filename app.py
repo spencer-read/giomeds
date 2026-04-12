@@ -2,11 +2,12 @@
 GioMeds Flask application.
 
 Provides:
-  POST /sms/incoming       — Twilio webhook for incoming SMS replies
-  GET/POST /admin/login    — Admin login
-  GET /admin/logout        — Admin logout
-  GET /admin               — Dashboard (current status + recent logs)
-  GET/POST /admin/schedule — Edit medication schedule
+  POST /sms/incoming        — Twilio webhook for incoming SMS replies
+  GET/POST /admin/login     — Admin login
+  GET /admin/logout         — Admin logout
+  GET /admin                — Dashboard (current status + recent logs)
+  GET/POST /admin/schedule  — Edit medication schedule
+  GET/POST /admin/vacation  — Configure vacation mode
 """
 import logging
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ import scheduler as sched
 import sheets
 import sms
 import state
+import vacation
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,6 +80,8 @@ def admin_dashboard():
     recent_logs = sheets.get_recent_logs(10)
     tz = pytz.timezone(config.TIMEZONE)
     now = datetime.now(tz)
+    vac_data = vacation.get_vacation()
+    vac_is_active = vacation.vacation_active()
     return render_template(
         "admin.html",
         schedule=schedule,
@@ -85,6 +89,8 @@ def admin_dashboard():
         recent_logs=recent_logs,
         now=now,
         timezone=config.TIMEZONE,
+        vacation=vac_data,
+        vacation_is_active=vac_is_active,
     )
 
 
@@ -115,6 +121,56 @@ def admin_schedule():
 
     schedule = sched.load_schedule()
     return render_template("admin_schedule.html", schedule=schedule)
+
+
+@app.route("/admin/vacation", methods=["GET", "POST"])
+@login_required
+def admin_vacation():
+    if request.method == "POST":
+        # "Clear" button resets to defaults
+        if "clear_vacation" in request.form:
+            vacation.save_vacation({
+                "active": False,
+                "sitter_name": "Sitter",
+                "sitter_phone": "",
+                "start": "",
+                "end": "",
+                "suspend_owner_notifications": False,
+            })
+            flash("Vacation mode cleared.")
+            return redirect(url_for("admin_dashboard"))
+
+        active = "active" in request.form
+        sitter_name_val = request.form.get("sitter_name", "").strip()
+        sitter_phone_val = request.form.get("sitter_phone", "").strip()
+        start_val = request.form.get("start", "").strip()
+        end_val = request.form.get("end", "").strip()
+        suspend = "suspend_owner_notifications" in request.form
+
+        # Validation
+        if active and not sitter_phone_val:
+            flash("Sitter phone number is required when vacation mode is enabled.")
+            return redirect(url_for("admin_vacation"))
+        if active and sitter_phone_val and not sitter_phone_val.startswith("+"):
+            flash("Sitter phone must be in E.164 format (starting with +).")
+            return redirect(url_for("admin_vacation"))
+        if start_val and end_val and end_val <= start_val:
+            flash("End date/time must be after start date/time.")
+            return redirect(url_for("admin_vacation"))
+
+        vacation.save_vacation({
+            "active": active,
+            "sitter_name": sitter_name_val or "Sitter",
+            "sitter_phone": sitter_phone_val,
+            "start": start_val,
+            "end": end_val,
+            "suspend_owner_notifications": suspend,
+        })
+        flash("Vacation mode settings saved.")
+        return redirect(url_for("admin_dashboard"))
+
+    vac_data = vacation.get_vacation()
+    return render_template("admin_vacation.html", vacation=vac_data)
 
 
 # ---------------------------------------------------------------------------
@@ -148,11 +204,17 @@ def sms_incoming():
 
     # --- Identify sender ---
     sender_name = config.USERS.get(from_number)
+    is_sitter = False
     if not sender_name:
-        logger.info("Unknown sender %s; ignoring silently", from_number)
-        return str(resp), 200, {"Content-Type": "text/xml"}
+        # Check if this is the sitter during an active vacation window
+        if vacation.vacation_active() and from_number == vacation.sitter_phone():
+            sender_name = vacation.sitter_name()
+            is_sitter = True
+        else:
+            logger.info("Unknown sender %s; ignoring silently", from_number)
+            return str(resp), 200, {"Content-Type": "text/xml"}
 
-    logger.info("Incoming SMS from %s (%s): %s", sender_name, from_number, body)
+    logger.info("Incoming SMS from %s (%s, sitter=%s): %s", sender_name, from_number, is_sitter, body)
 
     tz = pytz.timezone(config.TIMEZONE)
     now = datetime.now(tz)
@@ -184,9 +246,12 @@ def sms_incoming():
 
     # --- Parse reply ---
     parsed = parser.parse(body, now)
-    other_name, other_phone = config.get_other_user(from_number)
     scheduled_time = current.get("scheduled_time")
     sched_time_str = scheduled_time.strftime("%H:%M") if scheduled_time else "unknown"
+
+    # Vacation-aware cross-notification targets
+    vac_active = vacation.vacation_active()
+    vac_suspended = vacation.owners_suspended() if vac_active else False
 
     if parsed["action"] == "confirm":
         administered_at = parsed["administered_at"] or now
@@ -203,13 +268,27 @@ def sms_incoming():
         sched.cancel_follow_up_jobs()
 
         sms.send_sms(from_number, sms.confirmation_ack_msg(med_name, admin_time_str))
-        if other_phone:
-            sms.send_sms(other_phone, sms.cross_notification_msg(
-                name=sender_name,
-                med_name=med_name,
-                time_str=admin_time_str,
-                note=note,
-            ))
+
+        cross_msg = sms.cross_notification_msg(
+            name=sender_name,
+            med_name=med_name,
+            time_str=admin_time_str,
+            note=note,
+        )
+        if is_sitter:
+            # Sitter confirmed — notify owners only if not suspended
+            if not vac_suspended:
+                sms.send_sms(config.SPENCER_PHONE, cross_msg)
+                sms.send_sms(config.PETER_PHONE, cross_msg)
+        else:
+            # Owner confirmed — notify the other owner, plus sitter if vacation active
+            _, other_phone = config.get_other_user(from_number)
+            if other_phone:
+                sms.send_sms(other_phone, cross_msg)
+            if vac_active:
+                sitter_ph = vacation.sitter_phone()
+                if sitter_ph:
+                    sms.send_sms(sitter_ph, cross_msg)
 
     elif parsed["action"] == "skip":
         state.skip(skipped_by=sender_name, confirmed_at=now)
@@ -217,12 +296,26 @@ def sms_incoming():
         sched.cancel_follow_up_jobs()
 
         sms.send_sms(from_number, sms.skip_ack_msg(med_name))
-        if other_phone:
-            sms.send_sms(other_phone, sms.skip_cross_notification_msg(
-                name=sender_name,
-                scheduled_time_str=sched_time_str,
-                med_name=med_name,
-            ))
+
+        skip_cross_msg = sms.skip_cross_notification_msg(
+            name=sender_name,
+            scheduled_time_str=sched_time_str,
+            med_name=med_name,
+        )
+        if is_sitter:
+            # Sitter skipped — notify owners only if not suspended
+            if not vac_suspended:
+                sms.send_sms(config.SPENCER_PHONE, skip_cross_msg)
+                sms.send_sms(config.PETER_PHONE, skip_cross_msg)
+        else:
+            # Owner skipped — notify the other owner, plus sitter if vacation active
+            _, other_phone = config.get_other_user(from_number)
+            if other_phone:
+                sms.send_sms(other_phone, skip_cross_msg)
+            if vac_active:
+                sitter_ph = vacation.sitter_phone()
+                if sitter_ph:
+                    sms.send_sms(sitter_ph, skip_cross_msg)
 
     else:  # unknown
         sms.send_sms(from_number, sms.unrecognized_msg())

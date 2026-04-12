@@ -3,18 +3,19 @@ APScheduler job definitions and schedule management.
 
 Uses a single BackgroundScheduler (one instance per process) with:
   - CronTrigger jobs for each daily dose time
-  - DateTrigger jobs for follow-up reminders (chained, 30-min intervals)
+  - DateTrigger jobs for follow-up reminders (chained, 60-min intervals, max 2)
 
 Job lifecycle:
   dose_window_job(time_str)
     → closes previous pending window (missed)
     → opens new window (pending)
-    → sends initial reminder to both users
-    → schedules follow_up_reminder_job in 30 min
+    → sends initial reminder to reminder recipients
+    → schedules follow_up_reminder_job in REMINDER_INTERVAL_MINUTES
 
   follow_up_reminder_job()
-    → if still pending: sends reminder, reschedules itself in 30 min
-      (unless the next dose time is ≤ 30 min away)
+    → if still pending and reminder_count < MAX_REMINDERS:
+        sends reminder, reschedules itself in REMINDER_INTERVAL_MINUTES
+      (also skips scheduling if the next dose time would fire first)
 """
 import json
 import logging
@@ -31,6 +32,7 @@ import config
 import state
 import sms
 import sheets
+import vacation
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,12 @@ _DEFAULT_SCHEDULE: dict[str, Any] = {
 }
 
 scheduler = BackgroundScheduler(timezone=config.TIMEZONE)
+
+# ---------------------------------------------------------------------------
+# Reminder constants — adjust here to change interval or cap
+# ---------------------------------------------------------------------------
+REMINDER_INTERVAL_MINUTES = 60  # Minutes between follow-up reminders
+MAX_REMINDERS = 2               # Maximum follow-up reminders per dose window
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +102,25 @@ def _next_dose_after(current_time: datetime, dose_times: list[str]) -> datetime 
     return min(candidates) if candidates else None
 
 
+def _reminder_recipients() -> list[str]:
+    """Return the list of phone numbers to receive reminder/alert SMS.
+
+    During an active vacation window:
+      - Always includes the sitter.
+      - Includes owners only if suspend_owner_notifications is False.
+    Outside vacation: always Spencer and Peter.
+    """
+    if vacation.vacation_active():
+        phones: list[str] = []
+        sitter = vacation.sitter_phone()
+        if sitter:
+            phones.append(sitter)
+        if not vacation.owners_suspended():
+            phones += [config.SPENCER_PHONE, config.PETER_PHONE]
+        return phones
+    return [config.SPENCER_PHONE, config.PETER_PHONE]
+
+
 def cancel_follow_up_jobs() -> None:
     """Cancel all outstanding follow-up reminder jobs and clear the ID list."""
     for job_id in state.get_follow_up_job_ids():
@@ -105,7 +132,7 @@ def cancel_follow_up_jobs() -> None:
     state.clear_follow_up_job_ids()
 
 
-def _schedule_follow_up(delay_minutes: int = 30) -> None:
+def _schedule_follow_up(delay_minutes: int = REMINDER_INTERVAL_MINUTES) -> None:
     """Schedule one follow-up reminder `delay_minutes` from now.
 
     Skips scheduling if the next dose window would start before the follow-up
@@ -145,8 +172,8 @@ def dose_window_job(time_str: str) -> None:
 
     1. Closes the previous window if still pending (missed dose).
     2. Opens the new window.
-    3. Sends the initial reminder.
-    4. Schedules a follow-up in 30 minutes.
+    3. Sends the initial reminder to all recipients.
+    4. Schedules a follow-up in REMINDER_INTERVAL_MINUTES.
     """
     now = _now()
     schedule = load_schedule()
@@ -163,8 +190,8 @@ def dose_window_job(time_str: str) -> None:
         scheduled_time = current.get("scheduled_time")
         sched_str = scheduled_time.strftime("%H:%M") if scheduled_time else time_str
         missed_msg = sms.missed_dose_msg(sched_str, med_name)
-        sms.send_sms(config.SPENCER_PHONE, missed_msg)
-        sms.send_sms(config.PETER_PHONE, missed_msg)
+        for phone in _reminder_recipients():
+            sms.send_sms(phone, missed_msg)
 
     # Cancel any outstanding follow-up jobs
     cancel_follow_up_jobs()
@@ -176,15 +203,16 @@ def dose_window_job(time_str: str) -> None:
 
     # Send initial reminder
     reminder = sms.initial_reminder_msg(med_name)
-    sms.send_sms(config.SPENCER_PHONE, reminder)
-    sms.send_sms(config.PETER_PHONE, reminder)
+    for phone in _reminder_recipients():
+        sms.send_sms(phone, reminder)
 
     # Schedule first follow-up
-    _schedule_follow_up(delay_minutes=30)
+    _schedule_follow_up(delay_minutes=REMINDER_INTERVAL_MINUTES)
 
 
 def follow_up_reminder_job() -> None:
-    """Follow-up reminder — fires every 30 minutes while dose is still pending."""
+    """Follow-up reminder — fires every REMINDER_INTERVAL_MINUTES while dose is pending.
+    Stops after MAX_REMINDERS follow-ups have been sent."""
     current = state.get()
 
     if current.get("status") != "pending":
@@ -196,14 +224,18 @@ def follow_up_reminder_job() -> None:
 
     state.increment_reminder()
     follow_up = sms.follow_up_reminder_msg(med_name)
-    sms.send_sms(config.SPENCER_PHONE, follow_up)
-    sms.send_sms(config.PETER_PHONE, follow_up)
+    for phone in _reminder_recipients():
+        sms.send_sms(phone, follow_up)
 
     updated = state.get()
-    logger.info("Sent follow-up reminder #%d", updated.get("reminder_count", 0))
+    count = updated.get("reminder_count", 0)
+    logger.info("Sent follow-up reminder #%d", count)
 
-    # Chain the next follow-up
-    _schedule_follow_up(delay_minutes=30)
+    # Chain the next follow-up only if the cap has not been reached
+    if count < MAX_REMINDERS:
+        _schedule_follow_up(delay_minutes=REMINDER_INTERVAL_MINUTES)
+    else:
+        logger.info("Reminder cap (%d) reached; no further follow-ups for this window", MAX_REMINDERS)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GioMeds — Vacation Mode</title>
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+  />
+  <style>
+    .section-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 6px rgba(0,0,0,.07);
+      margin-bottom: 1.5rem;
+    }
+    .error { color: #c0392b; background: #f8d7da; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .helper-text { color: #666; font-size: 0.8rem; margin-top: -0.65rem; margin-bottom: 1rem; display: block; }
+  </style>
+</head>
+<body>
+  <main class="container" style="max-width: 560px;">
+
+    <!-- Nav -->
+    <nav style="margin-bottom: 1.5rem; padding: 0.75rem 0; border-bottom: 1px solid #e0e0e0;">
+      <ul><li><strong>💊 GioMeds</strong></li></ul>
+      <ul>
+        <li><a href="/admin" style="font-size: 0.9rem;">← Dashboard</a></li>
+        <li><a href="/admin/logout" style="font-size: 0.9rem; color: #666;">Logout</a></li>
+      </ul>
+    </nav>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages() %}
+      {% for msg in messages %}
+        <p class="error">{{ msg }}</p>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="section-card">
+      <h2 style="margin-bottom: 1.25rem;">✈️ Vacation Mode</h2>
+
+      <form method="post" action="/admin/vacation">
+
+        <label for="sitter_name">Sitter Name</label>
+        <input
+          type="text"
+          id="sitter_name"
+          name="sitter_name"
+          value="{{ vacation.sitter_name or '' }}"
+          placeholder="e.g. Jane"
+        />
+
+        <label for="sitter_phone">Sitter Phone Number</label>
+        <input
+          type="tel"
+          id="sitter_phone"
+          name="sitter_phone"
+          value="{{ vacation.sitter_phone or '' }}"
+          placeholder="+447700900002"
+        />
+        <span class="helper-text">E.164 format — must start with + followed by country code.</span>
+
+        <label for="start">Vacation Start</label>
+        <input
+          type="datetime-local"
+          id="start"
+          name="start"
+          value="{{ (vacation.start or '')[:16] }}"
+        />
+        <span class="helper-text">Times are interpreted in the configured timezone ({{ config.TIMEZONE if config is defined else 'Europe/London' }}).</span>
+
+        <label for="end">Vacation End</label>
+        <input
+          type="datetime-local"
+          id="end"
+          name="end"
+          value="{{ (vacation.end or '')[:16] }}"
+        />
+
+        <fieldset style="margin-top: 1rem; margin-bottom: 0.75rem; border: 1px solid #ddd; border-radius: 8px; padding: 1rem;">
+          <legend style="padding: 0 0.5rem; font-weight: 600; font-size: 0.9rem;">Options</legend>
+
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.75rem; cursor: pointer;">
+            <input
+              type="checkbox"
+              id="active"
+              name="active"
+              value="1"
+              {% if vacation.active %}checked{% endif %}
+              style="margin-top: 0.15rem; flex-shrink: 0;"
+            />
+            <span>
+              <strong>Enable vacation mode</strong><br />
+              <span style="font-size: 0.82rem; color: #555;">
+                When enabled, the sitter will receive all reminders and can confirm doses during the window above.
+              </span>
+            </span>
+          </label>
+
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer;">
+            <input
+              type="checkbox"
+              id="suspend_owner_notifications"
+              name="suspend_owner_notifications"
+              value="1"
+              {% if vacation.suspend_owner_notifications %}checked{% endif %}
+              style="margin-top: 0.15rem; flex-shrink: 0;"
+            />
+            <span>
+              <strong>Pause notifications to Spencer and Peter</strong><br />
+              <span style="font-size: 0.82rem; color: #555;">
+                When unchecked, Spencer and Peter will continue to receive all reminders
+                and cross-notifications alongside the sitter.
+              </span>
+            </span>
+          </label>
+        </fieldset>
+
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.25rem;">
+          <button type="submit">Save Settings</button>
+          <a href="/admin" role="button" class="secondary outline">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- Clear button in a separate form to avoid accidental submission -->
+    <div class="section-card" style="border: 1px solid #f8d7da;">
+      <h4 style="margin-bottom: 0.5rem; color: #842029;">Cancel Vacation</h4>
+      <p style="font-size: 0.875rem; color: #666; margin-bottom: 1rem;">
+        Resets all vacation settings and disables vacation mode immediately.
+      </p>
+      <form method="post" action="/admin/vacation"
+            onsubmit="return confirm('Clear vacation mode and reset all settings?');">
+        <button type="submit" name="clear_vacation" value="1" class="secondary"
+                style="background: #f8d7da; border-color: #f5c2c7; color: #842029;">
+          Clear / Cancel Vacation
+        </button>
+      </form>
+    </div>
+
+  </main>
+</body>
+</html>
