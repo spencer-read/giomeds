@@ -27,6 +27,20 @@ _DEFAULTS: dict = {
 }
 
 
+def normalize_phone(number: str) -> str:
+    """Return a comparable E.164 form of a UK phone number.
+
+    Handles the common mistake of '+44' followed by a leading trunk '0',
+    e.g. '+4407827334799' -> '+447827334799'.
+    """
+    if not number:
+        return ""
+    n = number.strip().replace(" ", "")
+    if n.startswith("+440"):
+        n = "+44" + n[4:]
+    return n
+
+
 def get_vacation() -> dict:
     """Return the parsed vacation.json, or empty defaults if missing/corrupt."""
     if os.path.exists(VACATION_FILE):
@@ -98,3 +112,17 @@ def owners_suspended() -> bool:
     if not vacation_active():
         return False
     return bool(get_vacation().get("suspend_owner_notifications", False))
+
+
+def normalize_stored_sitter_phone() -> None:
+    """One-time cleanup: rewrite vacation.json if the stored sitter phone
+    is not already in normalized E.164 form."""
+    data = get_vacation()
+    stored = data.get("sitter_phone", "")
+    if not stored:
+        return
+    normalized = normalize_phone(stored)
+    if normalized != stored:
+        data["sitter_phone"] = normalized
+        save_vacation(data)
+        logger.info("Normalized stored sitter_phone: '%s' -> '%s'", stored, normalized)

@@ -142,7 +142,7 @@ def admin_vacation():
 
         active = "active" in request.form
         sitter_name_val = request.form.get("sitter_name", "").strip()
-        sitter_phone_val = request.form.get("sitter_phone", "").strip()
+        sitter_phone_val = vacation.normalize_phone(request.form.get("sitter_phone", ""))
         start_val = request.form.get("start", "").strip()
         end_val = request.form.get("end", "").strip()
         suspend = "suspend_owner_notifications" in request.form
@@ -198,21 +198,26 @@ def sms_incoming():
         logger.warning("Invalid Twilio signature from %s; rejecting", request.remote_addr)
         abort(403)
 
-    from_number = request.form.get("From", "")
+    from_number = vacation.normalize_phone(request.form.get("From", ""))
     body = request.form.get("Body", "").strip()
     resp = MessagingResponse()  # empty TwiML — we send outbound replies ourselves
 
     # --- Identify sender ---
-    sender_name = config.USERS.get(from_number)
+    sender_name: str | None = None
     is_sitter = False
-    if not sender_name:
-        # Check if this is the sitter during an active vacation window
-        if vacation.vacation_active() and from_number == vacation.sitter_phone():
+    if from_number == vacation.normalize_phone(config.SPENCER_PHONE):
+        sender_name = "Spencer"
+    elif from_number == vacation.normalize_phone(config.PETER_PHONE):
+        sender_name = "Peter"
+    elif vacation.vacation_active():
+        sitter_ph = vacation.sitter_phone()
+        if sitter_ph and from_number == vacation.normalize_phone(sitter_ph):
             sender_name = vacation.sitter_name()
             is_sitter = True
-        else:
-            logger.info("Unknown sender %s; ignoring silently", from_number)
-            return str(resp), 200, {"Content-Type": "text/xml"}
+
+    if not sender_name:
+        logger.info("Unknown sender %s; ignoring silently", from_number)
+        return str(resp), 200, {"Content-Type": "text/xml"}
 
     logger.info("Incoming SMS from %s (%s, sitter=%s): %s", sender_name, from_number, is_sitter, body)
 
@@ -404,6 +409,7 @@ def _restore_state_from_sheets() -> None:
 
 
 # Run once at import time (before Gunicorn forks workers, or when Flask dev-server loads)
+vacation.normalize_stored_sitter_phone()
 _restore_state_from_sheets()
 sched.init_scheduler()
 
